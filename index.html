@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的工作台</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- 左侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">🗂️</span>
+        <span class="app-title">我的工作台</span>
+      </div>
+      <!-- 导航项由 js/app.js 渲染 -->
+      <nav class="sidebar-nav" id="sidebar-nav"></nav>
+      <div class="sidebar-footer">
+        <button type="button" class="btn btn-ghost btn-theme" id="theme-toggle">🌙 深色</button>
+      </div>
+    </aside>
+
+    <!-- 右侧内容区：各功能视图 -->
+    <main class="content" id="content">
+      <section id="view-dashboard" class="view"></section>
+      <section id="view-tasks" class="view"></section>
+      <section id="view-notes" class="view"></section>
+      <section id="view-bookmarks" class="view"></section>
+      <section id="view-calendar" class="view"></section>
+      <section id="view-review" class="view"></section>
+      <section id="view-projects" class="view"></section>
+      <section id="view-settings" class="view"></section>
+    </main>
+  </div>
+
+  <!-- 脚本按依赖顺序加载 -->
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/tasks.js"></script>
+  <script src="js/notes.js"></script>
+  <script src="js/bookmarks.js"></script>
+  <script src="js/calendar.js"></script>
+  <script src="js/review.js"></script>
+  <script src="js/projects.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
