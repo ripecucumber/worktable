@@ -109,7 +109,7 @@
                   <div class="dash-item proj-note-row" data-proj-act="view" data-note="${n.id}" title="点击查看笔记内容">
                     <span>📝</span>
                     <span class="dash-title">${Worktable.escapeHtml(n.title || '（无标题）')}</span>
-                    <span class="badge badge-tag">${Worktable.escapeHtml((n.updatedAt || '').slice(0, 10))}</span>
+                    <span class="badge badge-tag">${Worktable.escapeHtml(Worktable.localDateOf(n.updatedAt))}</span>
                     <button type="button" class="icon-btn" data-proj-act="note-edit" data-project="${p.id}" data-note="${n.id}" title="编辑笔记">✏️</button>
                     <button type="button" class="icon-btn" data-proj-act="note-del" data-project="${p.id}" data-note="${n.id}" title="删除笔记">🗑️</button>
                   </div>`).join('')}
@@ -135,7 +135,7 @@
           ${note.type === 'code' ? '<span class="badge badge-mid">💻 代码片段</span>' : ''}
           ${note.language ? `<span class="badge badge-tag">${Worktable.escapeHtml(note.language)}</span>` : ''}
           ${(note.tags || []).map(t => `<span class="badge badge-tag">#${Worktable.escapeHtml(t)}</span>`).join('')}
-          <span class="badge badge-project">更新于 ${Worktable.escapeHtml((note.updatedAt || '').slice(0, 10))}</span>
+          <span class="badge badge-project">更新于 ${Worktable.escapeHtml(Worktable.localDateOf(note.updatedAt))}</span>
         </div>
         <div class="modal-body md-body">${contentHtml}</div>
         <div class="modal-foot">

@@ -92,7 +92,7 @@
                 <div class="dash-item">
                   <span>${n.type === 'code' ? '💻' : '📝'}</span>
                   <span class="dash-title">${Worktable.escapeHtml(n.title || '（无标题）')}</span>
-                  <span class="badge badge-tag">${Worktable.escapeHtml((n.updatedAt || '').slice(5).replace('-', '/'))}</span>
+                  <span class="badge badge-tag">${Worktable.escapeHtml(Worktable.localDateOf(n.updatedAt).slice(5).replace('-', '/'))}</span>
                 </div>`).join('')}
         </div>
 

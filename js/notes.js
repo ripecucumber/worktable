@@ -57,7 +57,7 @@
               <div class="note-title">
                 ${n.type === 'code' ? '💻' : '📝'}
                 <span class="dash-title" style="flex:1">${Worktable.escapeHtml(n.title || '（无标题）')}</span>
-                <span class="note-time">${Worktable.escapeHtml((n.updatedAt || '').slice(0, 10))}</span>
+                <span class="note-time">${Worktable.escapeHtml(Worktable.localDateOf(n.updatedAt))}</span>
               </div>
               <div class="note-excerpt">${Worktable.escapeHtml(excerpt)}</div>
               <div class="note-tags">

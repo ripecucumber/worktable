@@ -77,11 +77,11 @@
     const d = new Date(date + 'T00:00:00');
     const dateLabel = isNaN(d.getTime()) ? date : (d.getMonth() + 1) + '月' + d.getDate() + '日 周' + week[d.getDay()];
 
-    // —— 统计 ——
-    const createdTasks = Worktable.data.tasks.filter(t => (t.createdAt || '').slice(0, 10) === date);
-    const completedTasks = Worktable.data.tasks.filter(t => (t.completedAt || '').slice(0, 10) === date);
-    const createdNotes = Worktable.data.notes.filter(n => (n.createdAt || '').slice(0, 10) === date);
-    const createdBookmarks = Worktable.data.bookmarks.filter(b => (b.createdAt || '').slice(0, 10) === date);
+    // —— 统计（用本地日期，避免 UTC 时区差一天）——
+    const createdTasks = Worktable.data.tasks.filter(t => Worktable.localDateOf(t.createdAt) === date);
+    const completedTasks = Worktable.data.tasks.filter(t => Worktable.localDateOf(t.completedAt) === date);
+    const createdNotes = Worktable.data.notes.filter(n => Worktable.localDateOf(n.createdAt) === date);
+    const createdBookmarks = Worktable.data.bookmarks.filter(b => Worktable.localDateOf(b.createdAt) === date);
     const dayEvents = Worktable.data.events.filter(e => e.date === date).sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
 
     const doneOfCreated = createdTasks.filter(t => t.done).length;

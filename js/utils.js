@@ -39,6 +39,14 @@ Worktable.escapeHtml = function (str) {
     .replace(/'/g, '&#39;');
 };
 
+/** ISO 时间戳 → 本地日期 YYYY-MM-DD（避免 UTC 时区导致日期差一天） */
+Worktable.localDateOf = function (iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
+
 /** YYYY-MM-DD → "8月11日 周二" */
 Worktable.formatDate = function (iso) {
   if (!iso) return '';
