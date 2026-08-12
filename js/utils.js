@@ -80,9 +80,25 @@ Worktable.inlineMd = function (str) {
     .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)\n]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 };
 
+/** 判断是否为表格行（以 | 开头和结尾，如 `| a | b |`） */
+function isTableRow(line) {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
+
+/** 判断是否为表格分隔行（如 `|---|---|`、`|:---:| --- |`） */
+function isTableSep(line) {
+  return /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(line);
+}
+
+/** 拆分表格行：`| a | b |` → ['a', 'b'] */
+function splitTableRow(line) {
+  return line.trim().replace(/^\||\|$/g, '').split('|').map(function (cell) { return cell.trim(); });
+}
+
 /**
  * 简易 Markdown → HTML（零依赖）。
- * 支持：标题 #/##/###、无序/有序列表、引用、分隔线、代码块（含语言标记与复制按钮）、行内样式。
+ * 支持：标题 #/##/###、无序/有序列表、引用、分隔线、代码块（含语言标记与复制按钮）、
+ * 表格（| 列 | 列 | + 分隔行）、行内样式。
  * 输入内容会先整体转义，保证安全。
  */
 Worktable.mdToHtml = function (md) {
@@ -150,6 +166,25 @@ Worktable.mdToHtml = function (md) {
       const type = ul ? 'ul' : 'ol';
       if (inList !== type) { flushList(); inList = type; }
       listBuf.push('<li>' + Worktable.inlineMd(esc((ul || ol)[1])) + '</li>');
+      continue;
+    }
+
+    // 表格：表头行 + 下一行是分隔行
+    if (isTableRow(line) && i + 1 < rawLines.length && isTableSep(rawLines[i + 1])) {
+      flushList(); flushPara();
+      const headers = splitTableRow(line);
+      i++; // 跳过分隔行
+      const rows = [];
+      while (i + 1 < rawLines.length && isTableRow(rawLines[i + 1])) {
+        rows.push(splitTableRow(rawLines[++i]));
+      }
+      html += '<table class="md-table"><thead><tr>'
+        + headers.map(function (c) { return '<th>' + Worktable.inlineMd(esc(c)) + '</th>'; }).join('')
+        + '</tr></thead><tbody>'
+        + rows.map(function (r) {
+            return '<tr>' + r.map(function (c) { return '<td>' + Worktable.inlineMd(esc(c)) + '</td>'; }).join('') + '</tr>';
+          }).join('')
+        + '</tbody></table>';
       continue;
     }
 
