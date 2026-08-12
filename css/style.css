@@ -339,6 +339,11 @@ a:hover { text-decoration: underline; }
 .md-table tr:nth-child(even) td { background: var(--bg); }
 .md-table code { background: none; padding: 0; }
 
+/* 数学公式（KaTeX） */
+.katex { color: var(--text); }                 /* 深色主题下公式文字跟随主题 */
+.katex-block { overflow-x: auto; padding: 6px 0; }  /* 长公式可横向滚动 */
+.katex-fallback { font-family: Consolas, monospace; color: var(--text-secondary); text-align: center; }
+
 /* 代码块（含复制按钮） */
 .code-block { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 10px 0; }
 .code-header {

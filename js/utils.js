@@ -104,7 +104,33 @@ function splitTableRow(line) {
 Worktable.mdToHtml = function (md) {
   if (!md || !md.trim()) return '<p class="empty">（空内容）</p>';
 
-  const rawLines = md.split('\n');
+  // —— 数学公式：先提取为占位符，避免公式中的 \ _ ^ * 等被转义或误渲染；代码块内容不参与提取 ——
+  const formulas = [];
+  let processedMd = md;
+  (function extractFormulas() {
+    const codeBlocks = [];
+    // 1. 先把代码块（含围栏）整体替换为占位符，保护其中可能的 $ 符号
+    processedMd = processedMd.replace(/(```[^\n]*\n[\s\S]*?```)/g, function (m) {
+      codeBlocks.push(m);
+      return '\x00C' + (codeBlocks.length - 1) + '\x00';
+    });
+    // 2. 提取块级公式 $$...$$（可跨行）
+    processedMd = processedMd.replace(/\$\$([\s\S]+?)\$\$/g, function (m, tex) {
+      formulas.push({ tex: tex.trim(), display: true });
+      return '\x00K' + (formulas.length - 1) + '\x00';
+    });
+    // 3. 提取行内公式 $...$（不跨行、内容不含 $）
+    processedMd = processedMd.replace(/\$([^$\n]+?)\$/g, function (m, tex) {
+      formulas.push({ tex: tex.trim(), display: false });
+      return '\x00K' + (formulas.length - 1) + '\x00';
+    });
+    // 4. 还原代码块
+    processedMd = processedMd.replace(/\x00C(\d+)\x00/g, function (m, idx) {
+      return codeBlocks[+idx];
+    });
+  })();
+
+  const rawLines = processedMd.split('\n');
   const esc = Worktable.escapeHtml; // 内容转义（块级语法先用原始文本判断，再转义内容，避免破坏 `>` 等语法）
   let html = '';
 
@@ -188,12 +214,35 @@ Worktable.mdToHtml = function (md) {
       continue;
     }
 
+    // 块级公式行（$$...$$）：独立输出，不包在段落 <p> 里
+    const blockFormula = line.trim().match(/^\x00K(\d+)\x00$/);
+    if (blockFormula && formulas[+blockFormula[1]] && formulas[+blockFormula[1]].display) {
+      flushList(); flushPara();
+      html += line.trim();
+      continue;
+    }
+
     // 普通文本行：连续的非空行合并为一个段落
     if (line.trim() === '') { flushList(); flushPara(); }
     else paraBuf.push(esc(line));
   }
   flushList(); flushPara();
   if (inCode) flushCode();
+
+  // —— 把公式占位符替换为 KaTeX 渲染结果（KaTeX 未加载时按原文显示，不崩溃）——
+  if (formulas.length) {
+    html = html.replace(/\x00K(\d+)\x00/g, function (m, idx) {
+      const f = formulas[+idx];
+      if (!f) return m;
+      if (typeof katex !== 'undefined' && katex.renderToString) {
+        const rendered = katex.renderToString(f.tex, { throwOnError: false, displayMode: f.display });
+        return f.display ? '<div class="katex-block">' + rendered + '</div>' : rendered;
+      }
+      return f.display
+        ? '<div class="katex-block katex-fallback">' + esc(f.tex) + '</div>'
+        : esc('$' + f.tex + '$');
+    });
+  }
 
   return html;
 };
