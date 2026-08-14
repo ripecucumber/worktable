@@ -28,6 +28,11 @@
   --shadow: 0 1px 3px rgba(27, 31, 36, 0.08);
   --toast-bg: #1f2328;
   --toast-text: #ffffff;
+  /* 热力图色阶（浅色主题：绿色系） */
+  --hm-1: #9be9a8;
+  --hm-2: #40c463;
+  --hm-3: #30a14e;
+  --hm-4: #216e39;
 }
 
 [data-theme="dark"] {
@@ -52,6 +57,11 @@
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   --toast-bg: #e6edf3;
   --toast-text: #0d1117;
+  /* 热力图色阶（深色主题：GitHub 深色风格） */
+  --hm-1: #0e4429;
+  --hm-2: #006d32;
+  --hm-3: #26a641;
+  --hm-4: #39d353;
 }
 
 /* ---------- 基础 ---------- */
@@ -410,7 +420,8 @@ a:hover { text-decoration: underline; }
   font-size: 11px;
 }
 .cal-event { background: var(--accent-soft); color: var(--accent-text); }
-.cal-task { background: var(--warning-soft); color: var(--warning); }
+.cal-task { background: var(--warning-soft); color: var(--warning); display: flex; align-items: center; gap: 3px; cursor: pointer; }
+.cal-task .task-checkbox { width: 12px; height: 12px; margin: 0; flex-shrink: 0; accent-color: var(--warning); cursor: pointer; }
 .cal-more { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
 
 .cal-side .event-item {
@@ -487,6 +498,41 @@ a:hover { text-decoration: underline; }
 /* ---------- 每日回顾 ---------- */
 .review-nav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .review-nav .cal-title { flex: none; }
+
+/* 热力图（月视图，GitHub 贡献图风格）：作为网格项与其他卡片同宽对齐 */
+.heatmap-card { max-width: 100%; }
+.heatmap-card-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.heatmap-nav { display: flex; align-items: center; gap: 6px; }
+.heatmap-title { font-size: 14px; font-weight: 600; }
+.heatmap { display: flex; gap: 5px; justify-content: center; }
+.heatmap-weekdays {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-right: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.heatmap-weekdays span { height: 20px; line-height: 20px; }
+.heatmap-col { display: flex; flex-direction: column; gap: 5px; }
+.heatmap-cell {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--bg-soft);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.heatmap-cell:hover { transform: scale(1.25); }
+.heatmap-cell.l1 { background: var(--hm-1); }
+.heatmap-cell.l2 { background: var(--hm-2); }
+.heatmap-cell.l3 { background: var(--hm-3); }
+.heatmap-cell.l4 { background: var(--hm-4); }
+.heatmap-cell.other-month { background: transparent; cursor: default; }
+.heatmap-cell.other-month:hover { transform: none; }
+.heatmap-legend { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 10px; font-size: 12px; color: var(--text-secondary); }
+.heatmap-legend .heatmap-cell { cursor: default; }
 
 /* ---------- 设置 ---------- */
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }

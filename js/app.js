@@ -38,6 +38,12 @@
 
   /** 切换视图：隐藏其他视图，渲染目标模块 */
   Worktable.showView = function (id) {
+    // 切换前先让各模块立即执行待保存的自动保存内容（防抖兜底）
+    Object.keys(Worktable.modules).forEach(function (key) {
+      const mod = Worktable.modules[key];
+      if (mod && mod.flush) mod.flush();
+    });
+
     if (Worktable.currentView) {
       document.getElementById('view-' + Worktable.currentView).classList.remove('active');
     }

@@ -14,6 +14,15 @@
   let expandedId = null;                 // 展开显示笔记的项目 id
   let noteEditing = null;                // { projectId, noteId } 正在编辑的项目笔记
   let viewingNoteId = null;              // 正在弹窗查看的笔记 id
+  let projSaveTimer = null;              // 项目笔记自动保存防抖定时器
+
+  /** 立即执行项目笔记表单的待保存内容（切换视图时由 app.js 调用） */
+  function flushProjectNote() {
+    clearTimeout(projSaveTimer);
+    projSaveTimer = null;
+    const form = el.querySelector('.proj-note-form');
+    if (form) saveProjectNote(form, true);
+  }
 
   /** 确保存在同名文件夹（项目与文件夹共用名称，重名时复用） */
   function ensureFolder(name) {
@@ -30,6 +39,73 @@
     return Worktable.data.notes
       .filter(n => n.folderId === project.folderId)
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  }
+
+  /** 项目笔记列表的 HTML（列表 + 阅读弹窗入口） */
+  function notesListHtml(project) {
+    const notes = projectNotes(project);
+    if (notes.length === 0) return '<div class="empty">这个项目还没有笔记</div>';
+    return notes.map(n => `
+        <div class="dash-item proj-note-row" data-proj-act="view" data-note="${n.id}" title="点击查看笔记内容">
+          <span>📝</span>
+          <span class="dash-title">${Worktable.escapeHtml(n.title || '（无标题）')}</span>
+          <span class="badge badge-tag">${Worktable.escapeHtml(Worktable.localDateOf(n.updatedAt))}</span>
+          <button type="button" class="icon-btn" data-proj-act="note-edit" data-project="${project.id}" data-note="${n.id}" title="编辑笔记">✏️</button>
+          <button type="button" class="icon-btn" data-proj-act="note-del" data-project="${project.id}" data-note="${n.id}" title="删除笔记">🗑️</button>
+        </div>`).join('');
+  }
+
+  /** 局部更新某项目展开区的笔记列表、计数与保存提示（不整页重建，保持输入焦点） */
+  function renderProjectNotes(project, saved) {
+    const listEl = document.getElementById('proj-notes-' + project.id);
+    if (listEl) listEl.innerHTML = notesListHtml(project);
+    const countEl = document.getElementById('proj-count-' + project.id);
+    if (countEl) countEl.textContent = projectNotes(project).length;
+    if (saved) {
+      const hintEl = document.getElementById('proj-save-hint-' + project.id);
+      if (hintEl) hintEl.textContent = '✓ 已自动保存';
+    }
+  }
+
+  /** 项目笔记自动保存：读取表单并保存（新建时第一次非空输入自动创建） */
+  function saveProjectNote(form, saved) {
+    const project = Worktable.data.projects.find(p => p.id === form.dataset.project);
+    if (!project) return;
+    const title = form.title.value.trim();
+    const content = form.content.value;
+    const tags = String(form.tags.value || '').split(/[,，、]/).map(s => s.trim()).filter(Boolean);
+    const now = new Date().toISOString();
+
+    if (noteEditing && noteEditing.projectId === project.id) {
+      const note = Worktable.data.notes.find(n => n.id === noteEditing.noteId);
+      if (note) {
+        note.title = title;
+        note.content = content;
+        note.tags = tags;
+        note.updatedAt = now;
+        Worktable.saveData();
+        renderProjectNotes(project, saved);
+      }
+      return;
+    }
+
+    // 新建模式：标题和内容都为空则不创建
+    if (!title && !content.trim()) return;
+    const note = {
+      id: Worktable.uid(),
+      title: title,
+      content: content,
+      type: 'note',
+      language: '',
+      tags: tags,
+      folderId: project.folderId,
+      createdAt: now,
+      updatedAt: now
+    };
+    Worktable.data.notes.push(note);
+    noteEditing = { projectId: project.id, noteId: note.id };
+    Worktable.saveData();
+    renderProjectNotes(project, saved);
   }
 
   function render() {
@@ -92,27 +168,17 @@
 
         ${expanded ? `
           <div class="project-notes">
-            <h4>📝 项目笔记（${notes.length}）</h4>
+            <h4>📝 项目笔记（<span id="proj-count-${p.id}">${notes.length}</span>）</h4>
             <form class="proj-note-form form-col" data-project="${p.id}" autocomplete="off" style="margin-bottom:10px;">
               <div class="form-row">
                 <input name="title" class="input grow" placeholder="笔记标题（可留空）" value="${Worktable.escapeHtml(noteEditingNote ? noteEditingNote.title : '')}">
                 <input name="tags" class="input" placeholder="标签，逗号分隔" style="flex:1;min-width:120px;"
                        value="${Worktable.escapeHtml(noteEditingNote ? (noteEditingNote.tags || []).join(', ') : '')}">
-                <button type="submit" class="btn btn-primary">${noteEditingNote ? '保存修改' : '添加笔记'}</button>
-                <button type="button" class="btn ${noteEditingNote ? '' : 'hidden'}" data-proj-act="note-cancel">取消</button>
+                <span id="proj-save-hint-${p.id}" style="font-size:12px;color:var(--success);"></span>
               </div>
-              <textarea name="content" class="textarea" placeholder="支持 Markdown 内容…" style="min-height:80px;">${Worktable.escapeHtml(noteEditingNote ? noteEditingNote.content : '')}</textarea>
+              <textarea name="content" class="textarea" placeholder="支持 Markdown 内容，输入后自动保存…" style="min-height:80px;">${Worktable.escapeHtml(noteEditingNote ? noteEditingNote.content : '')}</textarea>
             </form>
-            ${notes.length === 0
-              ? '<div class="empty">这个项目还没有笔记</div>'
-              : notes.map(n => `
-                  <div class="dash-item proj-note-row" data-proj-act="view" data-note="${n.id}" title="点击查看笔记内容">
-                    <span>📝</span>
-                    <span class="dash-title">${Worktable.escapeHtml(n.title || '（无标题）')}</span>
-                    <span class="badge badge-tag">${Worktable.escapeHtml(Worktable.localDateOf(n.updatedAt))}</span>
-                    <button type="button" class="icon-btn" data-proj-act="note-edit" data-project="${p.id}" data-note="${n.id}" title="编辑笔记">✏️</button>
-                    <button type="button" class="icon-btn" data-proj-act="note-del" data-project="${p.id}" data-note="${n.id}" title="删除笔记">🗑️</button>
-                  </div>`).join('')}
+            <div id="proj-notes-${p.id}">${notesListHtml(p)}</div>
           </div>` : ''}
       </div>`;
   }
@@ -294,42 +360,15 @@
       }
     });
 
-    // 添加 / 修改项目笔记
-    el.addEventListener('submit', function (e) {
+    // 项目笔记自动保存：输入防抖保存（700ms）
+    el.addEventListener('input', function (e) {
       const form = e.target.closest('.proj-note-form');
       if (!form) return;
-      e.preventDefault();
-      const project = Worktable.data.projects.find(p => p.id === form.dataset.project);
-      if (!project) return;
-      const now = new Date().toISOString();
-      const tags = String(form.tags.value || '').split(/[,，、]/).map(s => s.trim()).filter(Boolean);
-
-      if (noteEditing && noteEditing.projectId === project.id) {
-        const note = Worktable.data.notes.find(n => n.id === noteEditing.noteId);
-        if (note) {
-          note.title = form.title.value.trim();
-          note.content = form.content.value;
-          note.tags = tags;
-          note.updatedAt = now;
-        }
-        noteEditing = null;
-        Worktable.toast('已保存修改');
-      } else {
-        Worktable.data.notes.push({
-          id: Worktable.uid(),
-          title: form.title.value.trim(),
-          content: form.content.value,
-          type: 'note',
-          language: '',
-          tags: tags,
-          folderId: project.folderId,
-          createdAt: now,
-          updatedAt: now
-        });
-        Worktable.toast('已添加项目笔记');
+      const name = e.target.name;
+      if (name === 'title' || name === 'tags' || name === 'content') {
+        clearTimeout(projSaveTimer);
+        projSaveTimer = setTimeout(function () { saveProjectNote(form, true); }, 700);
       }
-      Worktable.saveData();
-      render();
     });
 
     // 进度修改：滑块 / 数字输入
@@ -377,6 +416,6 @@
     });
   }
 
-  Worktable.register(viewId, { init: init, render: render });
+  Worktable.register(viewId, { init: init, render: render, flush: flushProjectNote });
   init();
 })();

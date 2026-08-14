@@ -29,25 +29,8 @@
     events: [],       // 日历日程
     folders: [],      // 全局文件夹（笔记分类 / 项目文件夹）
     projects: [],     // 项目（进度管理）
-    studyRecords: [], // 学习记录 [{ id, date, subject(学了什么), minutes(时长分钟), createdAt }]
     settings: {}      // 设置（主题、工作台名称等）
   };
-
-  /** 旧版 studyLog（{date, seconds}）迁移为学习记录（subject 默认"学习"） */
-  function migrateStudyLog(data, raw) {
-    if (!data.studyRecords.length && raw.studyLog && Array.isArray(raw.studyLog) && raw.studyLog.length) {
-      data.studyRecords = raw.studyLog.map(function (l) {
-        return {
-          id: 'mig' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-          date: l.date || '',
-          subject: '学习',
-          minutes: Math.max(1, Math.round((l.seconds || 0) / 60)),
-          createdAt: new Date().toISOString()
-        };
-      });
-    }
-    delete data.studyLog; // 迁移完成后不再保留旧字段
-  }
 
   function getEmptyData() {
     return JSON.parse(JSON.stringify(DEFAULT_DATA));
@@ -64,7 +47,6 @@
           data[key] = raw[key];
         }
       });
-      migrateStudyLog(data, raw);
     }
     return data;
   }

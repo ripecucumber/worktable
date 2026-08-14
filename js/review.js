@@ -1,7 +1,9 @@
 /* ============================================================
    review.js — 每日回顾
-   按天查看：学习记录（学了什么 + 时长，内置计时器自动生成记录）、
-   待办完成率、当天新建的笔记/书签、当天日程
+   按天查看：待办完成率（按时/逾期/未完成，逾期完成计入完成率）、
+   当天新建的笔记/书签、当天日程；
+   月热力图：每天完成任务数 / 新建笔记数（可翻页浏览每月，补满整周），
+   点击当月格子可跳转到那一天
    ============================================================ */
 
 (function () {
@@ -10,65 +12,77 @@
 
   // 界面状态
   let viewDate = Worktable.today(); // 回顾的日期 YYYY-MM-DD
-  let editingRecordId = null;       // 正在编辑的学习记录 id
-  // 学习计时器（内存状态，刷新后停止；结束时生成一条学习记录）
-  let timer = { running: false, startTs: 0, pendingSeconds: 0, date: '', subject: '' };
-  let timerInterval = null;
+  const now = new Date();
+  let heatYear = now.getFullYear();  // 热力图显示的年份
+  let heatMonth = now.getMonth();    // 热力图显示的月份（0-11）
 
-  /** 秒 → "X小时Y分钟Z秒" 友好显示 */
-  function fmtDuration(totalSeconds) {
-    totalSeconds = Math.max(0, Math.floor(totalSeconds));
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    const parts = [];
-    if (h) parts.push(h + '小时');
-    if (m) parts.push(m + '分钟');
-    if (s) parts.push(s + '秒');
-    return parts.length ? parts.join('') : '0秒';
-  }
-
-  /** 分钟 → "X小时Y分钟" */
-  function fmtMinutes(minutes) {
-    minutes = Math.max(0, Math.floor(minutes));
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return (h ? h + '小时' : '') + m + '分钟';
-  }
-
-  /** 某天的学习记录（按创建时间排序） */
-  function recordsOf(date) {
-    return Worktable.data.studyRecords
-      .filter(r => r.date === date)
-      .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-  }
-
-  /** 某天学习总时长（分钟） */
-  function totalMinutes(date) {
-    return recordsOf(date).reduce((sum, r) => sum + (r.minutes || 0), 0);
-  }
-
-  /** 更新计时器显示（不重建页面）：当天已记录时长 + 本次会话进行中的时长 */
-  function updateTimerDisplay() {
-    const disp = document.getElementById('timer-display');
-    if (!disp) return;
-    const elapsed = timer.running
-      ? timer.pendingSeconds + Math.floor((Date.now() - timer.startTs) / 1000)
-      : timer.pendingSeconds;
-    // 有进行中的会话（计时中或未结束）时统计会话所在日期，否则统计当前查看的日期
-    const hasSession = timer.running || timer.pendingSeconds > 0;
-    const baseDate = hasSession ? (timer.date || viewDate) : viewDate;
-    const total = totalMinutes(baseDate) * 60 + elapsed;
-    disp.textContent = fmtDuration(total);
-  }
-
-  /** 根据计时器状态启动/停止刷新 */
-  function syncTimerTick() {
-    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-    if (timer.running) {
-      timerInterval = setInterval(updateTimerDisplay, 1000);
+  /** 生成某月热力图的周列（补满整周，含相邻月日期） */
+  function heatmapMonthWeeks(year, month) {
+    const first = new Date(year, month, 1);
+    const firstOffset = (first.getDay() + 6) % 7; // 当月 1 号是周几（周一起算）
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const start = new Date(first);
+    start.setDate(1 - firstOffset); // 起始格：1 号所在周的周一
+    const weeks = Math.ceil((firstOffset + daysInMonth) / 7);
+    const cols = [];
+    for (let w = 0; w < weeks; w++) {
+      const col = [];
+      for (let d = 0; d < 7; d++) {
+        const day = new Date(start);
+        day.setDate(start.getDate() + w * 7 + d);
+        col.push({ date: Worktable.iso(day), inMonth: day.getMonth() === month && day.getFullYear() === year });
+      }
+      cols.push(col);
     }
-    updateTimerDisplay();
+    return cols;
+  }
+
+  /** 统计每天数量：items 按 keyFn 得到日期，返回 { 'YYYY-MM-DD': 数量 } */
+  function countMap(items, keyFn) {
+    const map = {};
+    items.forEach(function (it) {
+      const d = keyFn(it);
+      if (d) map[d] = (map[d] || 0) + 1;
+    });
+    return map;
+  }
+
+  /** 数量 → 色阶 0-4 */
+  function heatLevel(count) {
+    if (count <= 0) return 0;
+    if (count <= 2) return 1;
+    if (count <= 5) return 2;
+    if (count <= 9) return 3;
+    return 4;
+  }
+
+  /** 渲染一张月热力图网格（不含导航与图例，由卡片统一提供） */
+  function renderHeatmapGrid(counts, label) {
+    const cols = heatmapMonthWeeks(heatYear, heatMonth);
+    return `
+        <div class="heatmap">
+          <div class="heatmap-weekdays">
+            <span>一</span><span></span><span></span><span></span><span></span><span></span><span>日</span>
+          </div>
+          ${cols.map(function (col) {
+            return '<div class="heatmap-col">' + col.map(function (c) {
+              if (!c.inMonth) {
+                return '<div class="heatmap-cell other-month"></div>';
+              }
+              const count = counts[c.date] || 0;
+              return `<div class="heatmap-cell l${heatLevel(count)}" data-heat-date="${c.date}"
+                        title="${Worktable.formatDate(c.date)}：${count} ${label}${count ? '' : '（点击查看当天）'}"></div>`;
+            }).join('') + '</div>';
+          }).join('')}
+        </div>`;
+  }
+
+  /** 逾期完成的天数（completedAt 本地日期 - dueDate） */
+  function lateDays(task) {
+    const done = Worktable.localDateOf(task.completedAt);
+    const due = new Date(task.dueDate + 'T00:00:00');
+    const doneD = new Date(done + 'T00:00:00');
+    return Math.round((doneD - due) / 86400000);
   }
 
   function render() {
@@ -77,21 +91,34 @@
     const d = new Date(date + 'T00:00:00');
     const dateLabel = isNaN(d.getTime()) ? date : (d.getMonth() + 1) + '月' + d.getDate() + '日 周' + week[d.getDay()];
 
-    // —— 统计（用本地日期，避免 UTC 时区差一天）——
+    // —— 统计 ——
     const createdTasks = Worktable.data.tasks.filter(t => Worktable.localDateOf(t.createdAt) === date);
     const completedTasks = Worktable.data.tasks.filter(t => Worktable.localDateOf(t.completedAt) === date);
     const createdNotes = Worktable.data.notes.filter(n => Worktable.localDateOf(n.createdAt) === date);
     const createdBookmarks = Worktable.data.bookmarks.filter(b => Worktable.localDateOf(b.createdAt) === date);
     const dayEvents = Worktable.data.events.filter(e => e.date === date).sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
 
-    const doneOfCreated = createdTasks.filter(t => t.done).length;
-    const rate = createdTasks.length ? Math.round(doneOfCreated / createdTasks.length * 100) : 0;
-    const totalMin = totalMinutes(date);
-    const dayRecords = recordsOf(date);
-    const editing = editingRecordId ? Worktable.data.studyRecords.find(r => r.id === editingRecordId) : null;
+    // —— 待办完成率：按"当天到期"统计（逾期完成也计入完成率）——
+    const dueTasks = Worktable.data.tasks.filter(t => t.dueDate === date);
+    const onTimeTasks = dueTasks.filter(t => t.done && Worktable.localDateOf(t.completedAt) <= t.dueDate);
+    const lateTasks = dueTasks.filter(t => t.done && Worktable.localDateOf(t.completedAt) > t.dueDate);
+    const notDoneTasks = dueTasks.filter(t => !t.done);
+    const doneTotal = onTimeTasks.length + lateTasks.length;
+    const rate = dueTasks.length ? Math.round(doneTotal / dueTasks.length * 100) : 0;
 
-    // 今天到期的未完成任务（用于展示当天安排）
-    const dueTasks = Worktable.data.tasks.filter(t => t.dueDate === date && !t.done);
+    // 到期任务排序：未完成在前（按优先级），已完成在后
+    const PRIORITY = { high: 0, mid: 1, low: 2 };
+    const sortedDue = dueTasks.slice().sort(function (a, b) {
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      const ap = PRIORITY[a.priority] != null ? PRIORITY[a.priority] : 2;
+      const bp = PRIORITY[b.priority] != null ? PRIORITY[b.priority] : 2;
+      return ap - bp;
+    });
+    const taskLabel = { high: '高', mid: '中', low: '低' };
+
+    // —— 热力图数据 ——
+    const doneMap = countMap(Worktable.data.tasks, t => Worktable.localDateOf(t.completedAt));
+    const notesMap = countMap(Worktable.data.notes, n => Worktable.localDateOf(n.createdAt));
 
     el.innerHTML = `
       <h1 class="page-title">📈 每日回顾</h1>
@@ -107,71 +134,36 @@
       </div>
 
       <div class="dash-grid">
-        <!-- 学习记录 -->
-        <div class="card">
-          <h3>⏱ 学习记录</h3>
-          <div style="font-size:30px;font-weight:700;color:var(--accent-text);margin:6px 0 10px;" id="timer-display">${fmtMinutes(totalMin)}</div>
-
-          <div class="form-row" style="margin-bottom:8px;">
-            <input id="timer-subject" class="input grow" placeholder="这次学了什么？如：英语 / 数学 / 编程…" value="${Worktable.escapeHtml(timer.subject)}">
-          </div>
-          <div class="form-row" style="margin-bottom:12px;" id="timer-buttons">
-            ${!timer.running && timer.pendingSeconds === 0
-              ? `<button type="button" class="btn btn-primary" data-timer="start">▶ 开始计时</button>`
-              : timer.running
-                ? `<button type="button" class="btn" data-timer="pause">⏸ 暂停</button>
-                   <button type="button" class="btn btn-danger" data-timer="stop">⏹ 结束并记录</button>`
-                : `<button type="button" class="btn btn-primary" data-timer="resume">▶ 继续</button>
-                   <button type="button" class="btn btn-danger" data-timer="stop">⏹ 结束并记录</button>`}
-          </div>
-
-          <form id="study-form" class="form-row" autocomplete="off" style="border-top:1px dashed var(--border);padding-top:12px;margin-bottom:10px;">
-            <input name="subject" class="input grow" placeholder="学了什么，如：英语" required
-                   value="${Worktable.escapeHtml(editing ? editing.subject : '')}">
-            <input name="minutes" type="number" class="input" min="1" placeholder="分钟" required style="width:90px;"
-                   value="${Worktable.escapeHtml(editing ? editing.minutes : '')}">
-            <button type="submit" class="btn btn-primary">${editingRecordId ? '保存修改' : '添加记录'}</button>
-            <button type="button" class="btn ${editingRecordId ? '' : 'hidden'}" data-study-act="cancel-edit">取消</button>
-          </form>
-
-          <div id="study-list">
-            ${dayRecords.length === 0
-              ? '<div class="empty">这一天还没有学习记录，用计时器或手动添加一条吧</div>'
-              : dayRecords.map(r => `
-                  <div class="dash-item">
-                    <span>🎓</span>
-                    <span class="dash-title">${Worktable.escapeHtml(r.subject || '学习')}</span>
-                    <span class="badge badge-project">${fmtMinutes(r.minutes)}</span>
-                    <button type="button" class="icon-btn" data-study-act="edit" data-id="${r.id}" title="编辑">✏️</button>
-                    <button type="button" class="icon-btn" data-study-act="del" data-id="${r.id}" title="删除">🗑️</button>
-                  </div>`).join('')}
-          </div>
-        </div>
-
-        <!-- 待办 -->
+        <!-- 待办完成率（含逾期完成） -->
         <div class="card">
           <h3>✅ 待办完成率</h3>
-          ${createdTasks.length === 0 && completedTasks.length === 0
-            ? '<div class="empty">这天没有待办记录</div>'
+          ${dueTasks.length === 0 && createdTasks.length === 0
+            ? '<div class="empty">这天没有到期待办或待办记录</div>'
             : `
               <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">
-                当天新增 <b>${createdTasks.length}</b> 条 · 当天完成 <b>${completedTasks.length}</b> 条
+                当天到期 <b>${dueTasks.length}</b> 条 · 按时完成 <b>${onTimeTasks.length}</b> · 逾期完成 <b>${lateTasks.length}</b> · 未完成 <b>${notDoneTasks.length}</b>
               </div>
-              ${createdTasks.length ? `
+              ${dueTasks.length ? `
                 <div class="progress"><div style="width:${rate}%"></div></div>
-                <div style="font-size:13px;color:var(--text-secondary);">新增任务完成率 <b>${rate}%</b></div>` : ''}
+                <div style="font-size:13px;color:var(--text-secondary);">完成率 <b>${rate}%</b>（逾期完成计入）</div>` : ''}
               <div style="margin-top:10px;">
-                ${createdTasks.length === 0 ? '' : createdTasks.map(t => `
-                  <div class="dash-item">
-                    <input type="checkbox" class="task-checkbox" data-task-id="${t.id}" ${t.done ? 'checked' : ''}>
-                    <span class="dash-title ${t.done ? 'done' : ''}">${Worktable.escapeHtml(t.title)}</span>
-                  </div>`).join('')}
-                ${dueTasks.length ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:8px;">当天到期未完成：</div>
-                  ${dueTasks.map(t => `
-                    <div class="dash-item">
-                      <input type="checkbox" class="task-checkbox" data-task-id="${t.id}">
+                ${dueTasks.length === 0 ? '' : sortedDue.map(t => {
+                  let statusBadge = '';
+                  if (!t.done) statusBadge = '<span class="badge badge-tag">⬜ 未完成</span>';
+                  else if (Worktable.localDateOf(t.completedAt) <= t.dueDate) statusBadge = '<span class="badge badge-success">✅ 按时完成</span>';
+                  else statusBadge = '<span class="badge badge-mid">⏰ 逾期 ' + lateDays(t) + ' 天完成</span>';
+                  return `
+                    <div class="dash-item ${t.done ? 'done' : ''}">
+                      <input type="checkbox" class="task-checkbox" data-task-id="${t.id}" ${t.done ? 'checked' : ''}>
                       <span class="dash-title">${Worktable.escapeHtml(t.title)}</span>
-                    </div>`).join('')}` : ''}
+                      <span class="badge badge-${t.priority || 'low'}">${taskLabel[t.priority] || '低'}优先级</span>
+                      ${statusBadge}
+                    </div>`;
+                }).join('')}
+                ${createdTasks.length || completedTasks.length ? `
+                  <div style="font-size:12px;color:var(--text-secondary);margin-top:8px;">
+                    补充：当天新增 ${createdTasks.length} 条 · 当天完成 ${completedTasks.length} 条
+                  </div>` : ''}
               </div>`}
         </div>
 
@@ -210,10 +202,50 @@
                   <span class="dash-title">${Worktable.escapeHtml(e.title)}</span>
                 </div>`).join('')}
         </div>
+
+        <!-- 热力图：待办完成（与其他卡片同网格对齐） -->
+        <div class="card heatmap-card">
+          <div class="heatmap-card-head">
+            <h3 style="margin:0;">🔥 待办完成 <span style="font-size:12px;color:var(--text-secondary);font-weight:400;">每天完成数</span></h3>
+            <div class="heatmap-nav">
+              <button type="button" class="icon-btn" data-heat-nav="prev" title="上个月">◀</button>
+              <span class="heatmap-title">${heatYear}年${heatMonth + 1}月</span>
+              <button type="button" class="icon-btn" data-heat-nav="next" title="下个月">▶</button>
+              <button type="button" class="btn btn-sm" data-heat-nav="today">本月</button>
+            </div>
+          </div>
+          ${renderHeatmapGrid(doneMap, '个任务')}
+          <div class="heatmap-legend">少
+            <span class="heatmap-cell l1"></span>
+            <span class="heatmap-cell l2"></span>
+            <span class="heatmap-cell l3"></span>
+            <span class="heatmap-cell l4"></span>
+            多 · 点击格子查看那一天
+          </div>
+        </div>
+
+        <!-- 热力图：新建笔记 -->
+        <div class="card heatmap-card">
+          <div class="heatmap-card-head">
+            <h3 style="margin:0;">🔥 新建笔记 <span style="font-size:12px;color:var(--text-secondary);font-weight:400;">每天新建数</span></h3>
+            <div class="heatmap-nav">
+              <button type="button" class="icon-btn" data-heat-nav="prev" title="上个月">◀</button>
+              <span class="heatmap-title">${heatYear}年${heatMonth + 1}月</span>
+              <button type="button" class="icon-btn" data-heat-nav="next" title="下个月">▶</button>
+              <button type="button" class="btn btn-sm" data-heat-nav="today">本月</button>
+            </div>
+          </div>
+          ${renderHeatmapGrid(notesMap, '条笔记')}
+          <div class="heatmap-legend">少
+            <span class="heatmap-cell l1"></span>
+            <span class="heatmap-cell l2"></span>
+            <span class="heatmap-cell l3"></span>
+            <span class="heatmap-cell l4"></span>
+            多 · 点击格子查看那一天
+          </div>
+        </div>
       </div>
     `;
-
-    syncTimerTick();
   }
 
   /** 日期加减天 */
@@ -221,6 +253,13 @@
     const dt = new Date(viewDate + 'T00:00:00');
     dt.setDate(dt.getDate() + days);
     viewDate = Worktable.iso(dt);
+  }
+
+  /** 热力图翻页 */
+  function shiftHeatMonth(delta) {
+    heatMonth += delta;
+    if (heatMonth < 0) { heatMonth = 11; heatYear--; }
+    if (heatMonth > 11) { heatMonth = 0; heatYear++; }
   }
 
   function init() {
@@ -240,111 +279,26 @@
         return;
       }
 
-      // 计时器按钮
-      const tBtn = e.target.closest('[data-timer]');
-      if (tBtn) {
-        const act = tBtn.dataset.timer;
-        const now = Date.now();
-        if (act === 'start' || act === 'resume') {
-          if (!timer.running) {
-            if (act === 'start') { timer.pendingSeconds = 0; timer.date = Worktable.today(); }
-            timer.startTs = now;
-            timer.running = true;
-          }
-        } else if (act === 'pause') {
-          if (timer.running) {
-            timer.pendingSeconds += Math.floor((now - timer.startTs) / 1000);
-            timer.running = false;
-          }
-        } else if (act === 'stop') {
-          if (timer.running) {
-            timer.pendingSeconds += Math.floor((now - timer.startTs) / 1000);
-            timer.running = false;
-          }
-          // 结束：本次时长生成一条学习记录（主题取"这次学了什么"，默认"学习"）
-          const minutes = Math.max(1, Math.round(timer.pendingSeconds / 60));
-          if (minutes > 0) {
-            const subjectInput = document.getElementById('timer-subject');
-            if (subjectInput && subjectInput.value.trim()) timer.subject = subjectInput.value.trim();
-            const subject = timer.subject || '学习';
-            const recDate = timer.date || Worktable.today();
-            Worktable.data.studyRecords.push({
-              id: Worktable.uid(),
-              date: recDate,
-              subject: subject,
-              minutes: minutes,
-              createdAt: new Date().toISOString()
-            });
-            timer.pendingSeconds = 0;
-            Worktable.saveData();
-            Worktable.toast('已记录：' + subject + ' ' + minutes + ' 分钟');
-          }
+      // 热力图翻页
+      const navBtn = e.target.closest('[data-heat-nav]');
+      if (navBtn) {
+        const act = navBtn.dataset.heatNav;
+        if (act === 'prev') shiftHeatMonth(-1);
+        else if (act === 'next') shiftHeatMonth(1);
+        else if (act === 'today') {
+          const t = new Date();
+          heatYear = t.getFullYear();
+          heatMonth = t.getMonth();
         }
         render();
         return;
       }
 
-      // 学习记录操作：编辑 / 删除 / 取消
-      const studyBtn = e.target.closest('[data-study-act]');
-      if (!studyBtn) return;
-      const act = studyBtn.dataset.studyAct;
-      const id = studyBtn.dataset.id;
-      if (act === 'cancel-edit') {
-        editingRecordId = null;
+      // 点击热力图格子 → 跳转到那一天
+      const cell = e.target.closest('[data-heat-date]');
+      if (cell) {
+        viewDate = cell.dataset.heatDate;
         render();
-      } else if (act === 'edit') {
-        editingRecordId = id;
-        render();
-        const subjectInput = el.querySelector('#study-form [name=subject]');
-        if (subjectInput) subjectInput.focus();
-      } else if (act === 'del') {
-        const rec = Worktable.data.studyRecords.find(r => r.id === id);
-        if (rec && confirm('确定要删除这条学习记录「' + (rec.subject || '学习') + ' ' + rec.minutes + ' 分钟」吗？')) {
-          Worktable.data.studyRecords = Worktable.data.studyRecords.filter(r => r.id !== id);
-          if (editingRecordId === id) editingRecordId = null;
-          Worktable.saveData();
-          render();
-          Worktable.toast('已删除');
-        }
-      }
-    });
-
-    // 手动添加 / 编辑学习记录
-    el.addEventListener('submit', function (e) {
-      const form = e.target.closest('#study-form');
-      if (!form) return;
-      e.preventDefault();
-      const subject = form.subject.value.trim();
-      const minutes = parseInt(form.minutes.value, 10);
-      if (!subject) { Worktable.toast('请填写学了什么'); return; }
-      if (isNaN(minutes) || minutes < 1) { Worktable.toast('请填写有效的分钟数'); return; }
-
-      if (editingRecordId) {
-        const rec = Worktable.data.studyRecords.find(r => r.id === editingRecordId);
-        if (rec) {
-          rec.subject = subject;
-          rec.minutes = minutes;
-        }
-        editingRecordId = null;
-        Worktable.toast('已保存修改');
-      } else {
-        Worktable.data.studyRecords.push({
-          id: Worktable.uid(),
-          date: viewDate,
-          subject: subject,
-          minutes: minutes,
-          createdAt: new Date().toISOString()
-        });
-        Worktable.toast('已添加学习记录');
-      }
-      Worktable.saveData();
-      render();
-    });
-
-    // 计时主题输入时保存到状态（避免页面重建后丢失）
-    el.addEventListener('input', function (e) {
-      if (e.target.id === 'timer-subject') {
-        timer.subject = e.target.value;
       }
     });
 

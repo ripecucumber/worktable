@@ -29,8 +29,13 @@
       });
   }
 
-  /** 某天未完成的待办 */
+  /** 某天到期的待办（含已完成，详情面板展示用） */
   function tasksOf(date) {
+    return Worktable.data.tasks.filter(t => t.dueDate === date);
+  }
+
+  /** 某天到期且未完成的待办（日历格子徽标用） */
+  function tasksDueOf(date) {
     return Worktable.data.tasks.filter(t => t.dueDate === date && !t.done);
   }
 
@@ -64,7 +69,7 @@
       if (dateStr === selectedDate) cls += ' selected';
 
       const evs = eventsOf(dateStr);
-      const tasks = tasksOf(dateStr);
+      const tasks = tasksDueOf(dateStr);
       const shown = evs.slice(0, 2);
       const shownTasks = tasks.slice(0, 1);
       const more = evs.length + tasks.length - shown.length - shownTasks.length;
@@ -72,18 +77,33 @@
       html += `<div class="${cls}" data-date="${dateStr}" title="${Worktable.formatDate(dateStr)}">
         <span class="cal-date">${d}</span>
         ${shown.map(e => `<div class="cal-event" title="${Worktable.escapeHtml(e.title)}">${Worktable.escapeHtml(e.time ? e.time + ' ' : '')}${Worktable.escapeHtml(e.title)}</div>`).join('')}
-        ${shownTasks.map(t => `<div class="cal-task" title="${Worktable.escapeHtml(t.title)}">✅ ${Worktable.escapeHtml(t.title)}</div>`).join('')}
+        ${shownTasks.map(t => `
+          <label class="cal-task" title="${Worktable.escapeHtml(t.title)}">
+            <input type="checkbox" class="task-checkbox cal-task-check" data-task-id="${t.id}" onclick="event.stopPropagation()">
+            ${Worktable.escapeHtml(t.title)}
+          </label>`).join('')}
         ${more > 0 ? `<div class="cal-more">+${more} 更多</div>` : ''}
       </div>`;
     }
     return html;
   }
 
-  /** 右侧详情面板：选中日期的日程与待办 */
+  /** 右侧详情面板：当天事项（日程与待办合并展示） */
   function renderSide() {
     const evs = eventsOf(selectedDate);
     const tasks = tasksOf(selectedDate);
     const editing = editingEventId ? Worktable.data.events.find(e => e.id === editingEventId) : null;
+
+    // 待办排序：未完成在前（按优先级），已完成在后
+    const PRIORITY = { high: 0, mid: 1, low: 2 };
+    const sortedTasks = tasks.slice().sort(function (a, b) {
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      const ap = PRIORITY[a.priority] != null ? PRIORITY[a.priority] : 2;
+      const bp = PRIORITY[b.priority] != null ? PRIORITY[b.priority] : 2;
+      return ap - bp;
+    });
+    const taskLabel = { high: '高', mid: '中', low: '低' };
+    const hasItems = evs.length > 0 || tasks.length > 0;
 
     document.getElementById('cal-side').innerHTML = `
       <div class="card">
@@ -99,11 +119,11 @@
           <input name="desc" class="input" placeholder="说明（可选）" value="${Worktable.escapeHtml(editing ? editing.description : '')}">
         </form>
 
-        <h4>🗓 日程安排</h4>
-        ${evs.length === 0
-          ? '<div class="empty">这一天没有日程</div>'
+        <h4>📋 当天事项</h4>
+        ${!hasItems
+          ? '<div class="empty">这一天没有日程或到期待办</div>'
           : evs.map(e => `
-              <div class="event-item">
+              <div class="dash-item">
                 <span class="event-time">${Worktable.escapeHtml(e.time || '全天')}</span>
                 <div class="event-body">
                   <div class="event-title">${Worktable.escapeHtml(e.title)}</div>
@@ -113,16 +133,13 @@
                   <button type="button" class="icon-btn" data-act="edit-event" data-id="${e.id}" title="编辑">✏️</button>
                   <button type="button" class="icon-btn" data-act="del-event" data-id="${e.id}" title="删除">🗑️</button>
                 </div>
-              </div>`).join('')}
-
-        <h4>✅ 到期待办</h4>
-        ${tasks.length === 0
-          ? '<div class="empty">这一天没有到期任务</div>'
-          : tasks.map(t => `
-              <div class="dash-item">
-                <input type="checkbox" class="task-checkbox" data-task-id="${t.id}">
+              </div>`).join('')
+            + sortedTasks.map(t => `
+              <div class="dash-item ${t.done ? 'done' : ''}">
+                <input type="checkbox" class="task-checkbox" data-task-id="${t.id}" ${t.done ? 'checked' : ''}>
                 <span class="dash-title">${Worktable.escapeHtml(t.title)}</span>
-                <span class="badge badge-${t.priority || 'low'}">${t.priority === 'high' ? '高' : t.priority === 'mid' ? '中' : '低'}</span>
+                <span class="badge badge-${t.priority || 'low'}">${taskLabel[t.priority] || '低'}优先级</span>
+                ${t.done ? '<span class="badge badge-success">已完成</span>' : ''}
               </div>`).join('')}
       </div>
     `;

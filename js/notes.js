@@ -16,8 +16,98 @@
   let previewMode = false;    // false=编辑 true=预览
   let creatingFolder = false; // 正在新建文件夹
   let renamingFolderId = null; // 正在重命名的文件夹 id
+  let saveTimer = null;       // 自动保存防抖定时器
 
   const TYPE_LABEL = { note: '📝 笔记', code: '💻 代码片段' };
+
+  /** 读取编辑器表单当前值 */
+  function getFormData() {
+    const form = el.querySelector('#note-form');
+    if (!form) return null;
+    return {
+      title: form.title.value.trim(),
+      content: form.content.value,
+      type: form.type.value,
+      language: form.language.value.trim(),
+      tags: String(form.tags.value || '').split(/[,，、]/).map(s => s.trim()).filter(Boolean),
+      folderId: form.folder.value
+    };
+  }
+
+  /** 更新表单区头部状态（新建/编辑中）与"已自动保存"提示 */
+  function updateFormHeader() {
+    const header = el.querySelector('#note-form-head');
+    if (header) header.textContent = editingId ? '✏️ 编辑中' : '✨ 新建';
+    const hint = el.querySelector('#note-save-hint');
+    if (hint) hint.textContent = '✓ 已自动保存';
+  }
+
+  /** 立即保存当前表单内容（自动保存核心） */
+  function saveCurrent() {
+    const data = getFormData();
+    if (!data) return;
+    const now = new Date().toISOString();
+
+    if (editingId) {
+      const note = Worktable.data.notes.find(n => n.id === editingId);
+      if (note) {
+        note.title = data.title;
+        note.content = data.content;
+        note.type = data.type;
+        note.language = data.type === 'code' ? data.language : '';
+        note.tags = data.tags;
+        note.folderId = data.folderId;
+        note.updatedAt = now;
+        Worktable.saveData();
+        renderList();
+        updateFormHeader();
+      }
+      return;
+    }
+
+    // 新建模式：标题和内容都为空则不创建
+    if (!data.title && !data.content.trim()) return;
+    const note = {
+      id: Worktable.uid(),
+      title: data.title,
+      content: data.content,
+      type: data.type,
+      language: data.type === 'code' ? data.language : '',
+      tags: data.tags,
+      folderId: data.folderId,
+      createdAt: now,
+      updatedAt: now
+    };
+    Worktable.data.notes.push(note);
+    editingId = note.id; // 进入编辑态，后续输入持续更新同一篇
+    Worktable.saveData();
+    renderList();
+    updateFormHeader();
+  }
+
+  /** 防抖自动保存（输入停止 700ms 后保存） */
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveCurrent, 700);
+  }
+
+  /** 立即执行待保存内容（切换视图时由 app.js 调用） */
+  function flush() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    saveCurrent();
+  }
+
+  /** 回到新建状态（清空表单，放弃当前草稿） */
+  function startNewNote() {
+    clearTimeout(saveTimer); // 放弃未保存的输入，不创建草稿
+    saveTimer = null;
+    editingId = null;
+    previewMode = false;
+    render();
+    const titleInput = el.querySelector('#note-form .title-input');
+    if (titleInput) titleInput.focus();
+  }
 
   /** 根据文件夹 id 查名称 */
   function folderName(id) {
@@ -170,9 +260,14 @@
         </div>
 
         <div class="card">
-          <h3>${editingId ? '✏️ 编辑' : '✨ 新建'}</h3>
+          <h3 style="display:flex;align-items:center;gap:8px;">
+            <span id="note-form-head">${editingId ? '✏️ 编辑中' : '✨ 新建'}</span>
+            <span id="note-save-hint" style="font-size:12px;color:var(--success);font-weight:400;"></span>
+            <span style="flex:1"></span>
+            <button type="button" class="btn btn-sm" data-act="new-note">＋ 新建</button>
+          </h3>
           <form id="note-form" class="form-col" autocomplete="off">
-            <input name="title" class="input" placeholder="标题（可留空）" value="${Worktable.escapeHtml(editing ? editing.title : '')}">
+            <input name="title" class="input title-input" placeholder="标题（可留空）" value="${Worktable.escapeHtml(editing ? editing.title : '')}">
             <div class="note-meta-row">
               <select name="folder" class="select" title="所属文件夹">
                 <option value="">📄 未分类</option>
@@ -195,9 +290,7 @@
               placeholder="支持 Markdown：**加粗**、\`代码\`、\`\`\` 代码块 \`\`\`、列表、链接…">${Worktable.escapeHtml(editing ? editing.content : '')}</textarea>
             <div class="note-preview md-body ${previewMode ? '' : 'hidden'}" id="note-preview"></div>
             <div class="form-row">
-              <button type="submit" class="btn btn-primary">保存</button>
-              <button type="button" class="btn ${editingId ? '' : 'hidden'}" data-act="cancel-edit">取消编辑</button>
-              <span style="color: var(--text-secondary); font-size: 12px;">💡 选「代码片段」类型可带语言标记和一键复制</span>
+              <span style="color: var(--text-secondary); font-size: 12px;">💡 内容输入后自动保存，无需手动保存</span>
             </div>
           </form>
         </div>
@@ -242,45 +335,19 @@
   }
 
   function init() {
-    // 保存 / 新建
-    el.addEventListener('submit', function (e) {
-      const form = e.target.closest('#note-form');
-      if (!form) return;
-      e.preventDefault();
-      const now = new Date().toISOString();
-      const content = form.content.value;
-      const tags = parseTags(form.tags.value);
-
-      if (editingId) {
-        const note = Worktable.data.notes.find(n => n.id === editingId);
-        if (note) {
-          note.title = form.title.value.trim();
-          note.content = content;
-          note.type = form.type.value;
-          note.language = note.type === 'code' ? form.language.value.trim() : '';
-          note.tags = tags;
-          note.folderId = form.folder.value;
-          note.updatedAt = now;
-        }
-        editingId = null;
-        Worktable.toast('已保存修改');
-      } else {
-        Worktable.data.notes.push({
-          id: Worktable.uid(),
-          title: form.title.value.trim(),
-          content: content,
-          type: form.type.value,
-          language: form.type.value === 'code' ? form.language.value.trim() : '',
-          tags: tags,
-          folderId: form.folder.value,
-          createdAt: now,
-          updatedAt: now
-        });
-        Worktable.toast('已保存');
+    // 自动保存：输入内容防抖保存
+    el.addEventListener('input', function (e) {
+      const name = e.target.name;
+      if (name === 'title' || name === 'tags' || name === 'language' || name === 'content') {
+        scheduleSave();
       }
-      Worktable.saveData();
-      previewMode = false;
-      render();
+    });
+
+    // 类型 / 文件夹切换：立即保存
+    el.addEventListener('change', function (e) {
+      if (e.target.name === 'type' || e.target.name === 'folder') {
+        saveCurrent();
+      }
     });
 
     el.addEventListener('click', function (e) {
@@ -291,9 +358,12 @@
       if (btn) {
         const id = btn.dataset.id;
         if (btn.dataset.act === 'edit') { startEdit(id); return; }
+        if (btn.dataset.act === 'new-note') { startNewNote(); return; }
         if (btn.dataset.act === 'del') {
           const note = Worktable.data.notes.find(n => n.id === id);
           if (note && confirm('确定要删除「' + (note.title || '无标题笔记') + '」吗？')) {
+            clearTimeout(saveTimer); // 放弃待保存输入，防止误重建
+            saveTimer = null;
             Worktable.data.notes = Worktable.data.notes.filter(n => n.id !== id);
             if (editingId === id) editingId = null;
             Worktable.saveData();
@@ -307,6 +377,7 @@
 
       // 编辑 / 预览切换
       if (modeBtn) {
+        flush(); // 切换前先保存当前输入
         previewMode = modeBtn.dataset.mode === 'preview';
         const form = el.querySelector('#note-form');
         form.content.classList.toggle('hidden', previewMode);
@@ -449,6 +520,6 @@
     });
   }
 
-  Worktable.register(viewId, { init: init, render: render });
+  Worktable.register(viewId, { init: init, render: render, flush: flush });
   init();
 })();
