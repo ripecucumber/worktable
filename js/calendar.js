@@ -29,14 +29,16 @@
       });
   }
 
-  /** 某天到期的待办（含已完成，详情面板展示用） */
+  /** 某天事项中的待办：当天到期全部（含已完成）+ 逾期未完成（详情面板展示用，历史已完成不显示） */
   function tasksOf(date) {
-    return Worktable.data.tasks.filter(t => t.dueDate === date);
+    return Worktable.data.tasks.filter(t => t.dueDate && t.dueDate <= date && (t.dueDate === date || !t.done));
   }
 
-  /** 某天到期且未完成的待办（日历格子徽标用） */
+  /** 某天到期或已逾期且未完成的待办（日历格子徽标用，按到期日排序） */
   function tasksDueOf(date) {
-    return Worktable.data.tasks.filter(t => t.dueDate === date && !t.done);
+    return Worktable.data.tasks
+      .filter(t => t.dueDate && t.dueDate <= date && !t.done)
+      .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
   }
 
   /** 月视图网格 */
@@ -76,9 +78,9 @@
 
       html += `<div class="${cls}" data-date="${dateStr}" title="${Worktable.formatDate(dateStr)}">
         <span class="cal-date">${d}</span>
-        ${shown.map(e => `<div class="cal-event" title="${Worktable.escapeHtml(e.title)}">${Worktable.escapeHtml(e.time ? e.time + ' ' : '')}${Worktable.escapeHtml(e.title)}</div>`).join('')}
+        ${shown.map(e => `<div class="cal-event ${e.done ? 'done' : ''}" title="${Worktable.escapeHtml(e.title)}">${Worktable.escapeHtml(e.time ? e.time + ' ' : '')}${Worktable.escapeHtml(e.title)}</div>`).join('')}
         ${shownTasks.map(t => `
-          <label class="cal-task" title="${Worktable.escapeHtml(t.title)}">
+          <label class="cal-task ${t.dueDate < dateStr ? 'overdue' : ''}" title="${Worktable.escapeHtml(t.title)}${t.dueDate < dateStr ? '（逾期）' : ''}">
             <input type="checkbox" class="task-checkbox cal-task-check" data-task-id="${t.id}" onclick="event.stopPropagation()">
             ${Worktable.escapeHtml(t.title)}
           </label>`).join('')}
@@ -105,6 +107,13 @@
     const taskLabel = { high: '高', mid: '中', low: '低' };
     const hasItems = evs.length > 0 || tasks.length > 0;
 
+    // 逾期天数（当前查看日期 - 到期日）
+    const overdueOf = function (t) {
+      const due = new Date(t.dueDate + 'T00:00:00');
+      const cur = new Date(selectedDate + 'T00:00:00');
+      return Math.round((cur - due) / 86400000);
+    };
+
     document.getElementById('cal-side').innerHTML = `
       <div class="card">
         <h3>📌 ${Worktable.formatDate(selectedDate)}</h3>
@@ -123,7 +132,8 @@
         ${!hasItems
           ? '<div class="empty">这一天没有日程或到期待办</div>'
           : evs.map(e => `
-              <div class="dash-item">
+              <div class="dash-item ${e.done ? 'done' : ''}">
+                <input type="checkbox" class="event-checkbox" data-event-id="${e.id}" ${e.done ? 'checked' : ''} title="标记完成">
                 <span class="event-time">${Worktable.escapeHtml(e.time || '全天')}</span>
                 <div class="event-body">
                   <div class="event-title">${Worktable.escapeHtml(e.title)}</div>
@@ -139,6 +149,7 @@
                 <input type="checkbox" class="task-checkbox" data-task-id="${t.id}" ${t.done ? 'checked' : ''}>
                 <span class="dash-title">${Worktable.escapeHtml(t.title)}</span>
                 <span class="badge badge-${t.priority || 'low'}">${taskLabel[t.priority] || '低'}优先级</span>
+                ${!t.done && t.dueDate < selectedDate ? `<span class="badge badge-overdue">⏰ 逾期 ${overdueOf(t)} 天</span>` : ''}
                 ${t.done ? '<span class="badge badge-success">已完成</span>' : ''}
               </div>`).join('')}
       </div>
@@ -262,6 +273,7 @@
           date: selectedDate,
           time: form.time.value || '',
           description: form.desc.value.trim(),
+          done: false,
           createdAt: new Date().toISOString()
         });
         Worktable.toast('已添加日程');
@@ -270,12 +282,19 @@
       render();
     });
 
-    // 详情面板里勾选完成任务
+    // 勾选完成任务 / 标记日程完成（相互独立）
     el.addEventListener('change', function (e) {
       if (e.target.classList.contains('task-checkbox')) {
         const task = Worktable.data.tasks.find(t => t.id === e.target.dataset.taskId);
         if (task) {
           Worktable.setTaskDone(task, e.target.checked);
+          Worktable.saveData();
+          render();
+        }
+      } else if (e.target.classList.contains('event-checkbox')) {
+        const ev = Worktable.data.events.find(x => x.id === e.target.dataset.eventId);
+        if (ev) {
+          ev.done = e.target.checked;
           Worktable.saveData();
           render();
         }

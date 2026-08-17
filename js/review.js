@@ -197,9 +197,10 @@
           ${dayEvents.length === 0
             ? '<div class="empty">这天没有日程</div>'
             : dayEvents.map(e => `
-                <div class="dash-item">
+                <div class="dash-item ${e.done ? 'done' : ''}">
                   <span class="badge badge-project">${Worktable.escapeHtml(e.time || '全天')}</span>
                   <span class="dash-title">${Worktable.escapeHtml(e.title)}</span>
+                  <span class="badge ${e.done ? 'badge-success' : 'badge-tag'}">${e.done ? '✅ 已完成' : '⬜ 未完成'}</span>
                 </div>`).join('')}
         </div>
 
